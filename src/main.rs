@@ -50,11 +50,11 @@ async fn main() {
         clear_background(BLACK);
         dt = get_frame_time();
 
-        if n_balls < max_balls {
-            n_balls += 1;
-            spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin);
-            spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin + vec2(40., 0.));
-        }
+        // if n_balls < max_balls {
+        //     n_balls += 1;
+        //     spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin);
+        //     spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin + vec2(40., 0.));
+        // }
         if is_key_pressed(KeyCode::R) {
             scene.clear();
             n_balls = 0;
@@ -64,8 +64,9 @@ async fn main() {
                 Some(pos) => {
                     let mut particles = Vec::new();
                     let col = Color::new(rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), 1.0);
-                    for i in -2..=2 {
-                        for j in -2..=2 {
+                    let rad = if is_key_down(KeyCode::Z) { 10 } else { 2 };
+                    for i in -rad..=rad {
+                        for j in -rad..=rad {
                             let particle_pos = pos + vec2(i as f32 * (particle_radius * 2.), j as f32 * (particle_radius * 2.));
                             let handle = scene.add_particle(particle_pos, particle_radius);
                             scene.set_color(handle, col);

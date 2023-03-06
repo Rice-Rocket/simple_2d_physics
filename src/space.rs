@@ -240,90 +240,40 @@ impl Space {
         }
     }
     pub fn apply_collisions(&mut self) {
-        let new_positions = Arc::new(Mutex::new(self.positions.clone()));
-        let new_grid = Arc::new(Mutex::new(self.grid.clone()));
-        let n_threads = num_cpus::get();
-        let cols_per = self.grid.width / n_threads;
+        let iterator = self.grid.cells.clone();
+        for ((x, y), objects) in iterator {
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
+                        continue;
+                    }
+                    let other;
+                    match self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize) {
+                        Some(objs) => { other = objs.clone(); },
+                        None => { continue; }
+                    }
 
-        for update_side in 0..2 {
-            (0..n_threads).into_par_iter().for_each(|thread_idx| {
-                let mut thread_positions = new_positions.lock().unwrap();
-                // let mut thread_grid = new_grid.lock().unwrap().clone();
-                let xrange = if update_side == 0 {
-                    (thread_idx * cols_per)..(if thread_idx == (n_threads - 1) { self.grid.width - cols_per / 2 } else { (thread_idx + 1) * cols_per - cols_per / 2 })
-                } else {
-                    (if thread_idx == (n_threads - 1) { self.grid.width - cols_per / 2 } else { thread_idx * cols_per + (cols_per - cols_per / 2) })..(if thread_idx == (n_threads - 1) { self.grid.width } else { (thread_idx + 1) * cols_per })
-                };
-                for x in xrange {
-                    for y in 0..self.grid.height {
-                        let current_cell = self.grid.get(x, y).objects.clone();
-                        for dx in -1..=1 {
-                            for dy in -1..=1 {
-                                if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
-                                    continue;
-                                }
-                                let other = self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize).objects.clone();
-
-                                for i in current_cell.iter() {
-                                    for j in other.iter() {
-                                        if *i != *j {
-                                            let collision_axis = thread_positions[*i] - thread_positions[*j];
-                                            let center_dist = self.radii[*i] + self.radii[*j];
-                                            let dist = collision_axis.length();
-                                            if dist < center_dist {
-                                                let n = collision_axis / dist;
-                                                let delta = center_dist - dist;
-                                                thread_positions[*i] += 0.5 * delta * n;
-                                                thread_positions[*j] += -0.5 * delta * n;
-                                                new_grid.lock().unwrap().update_obj(*i, thread_positions[*i]);
-                                                new_grid.lock().unwrap().update_obj(*j, thread_positions[*j]);
-                                            }
-                                        }
-                                    }
+                    for i in objects.iter() {
+                        for j in other.iter() {
+                            if *i != *j {
+                                let collision_axis = self.positions[*i] - self.positions[*j];
+                                let center_dist = self.radii[*i] + self.radii[*j];
+                                let dist = collision_axis.length();
+                                if dist < center_dist {
+                                    let n = collision_axis / dist;
+                                    let delta = center_dist - dist;
+                                    self.positions[*i] += 0.5 * delta * n;
+                                    self.positions[*j] += -0.5 * delta * n;
+                                    self.grid.update_obj(*i, self.positions[*i]);
+                                    self.grid.update_obj(*j, self.positions[*j]);
                                 }
                             }
                         }
                     }
                 }
-            });
+            }
         }
-
-        self.positions = new_positions.lock().unwrap().clone();
-        self.grid = new_grid.lock().unwrap().clone();
     }
-    // pub fn apply_collisions(&mut self) {
-    //     for x in 0..self.grid.width {
-    //         for y in 0..self.grid.height {
-    //             let current_cell = self.grid.get(x, y).objects.clone();
-    //             for dx in -1..=1 {
-    //                 for dy in -1..=1 {
-    //                     if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
-    //                         continue;
-    //                     }
-    //                     let other = self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize).objects.clone();
-
-    //                     for i in current_cell.iter() {
-    //                         for j in other.iter() {
-    //                             if *i != *j {
-    //                                 let collision_axis = self.positions[*i] - self.positions[*j];
-    //                                 let center_dist = self.radii[*i] + self.radii[*j];
-    //                                 let dist = collision_axis.length();
-    //                                 if dist < center_dist {
-    //                                     let n = collision_axis / dist;
-    //                                     let delta = center_dist - dist;
-    //                                     self.positions[*i] += 0.5 * delta * n;
-    //                                     self.positions[*j] += -0.5 * delta * n;
-    //                                     self.grid.update_obj(*i, self.positions[*i]);
-    //                                     self.grid.update_obj(*j, self.positions[*j]);
-    //                                 }
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
     pub fn draw(&mut self) {
         let smaller_dim = screen_width().min(screen_height());
         let y_diff = screen_height() - smaller_dim;
@@ -334,17 +284,16 @@ impl Space {
         }
     }
     pub fn draw_debug(&mut self) {
-        for col in self.grid.cells.iter() {
-            for cell in col.iter() {
-                cell.draw();
-            }
+        let smaller_dim = screen_width().min(screen_height());
+        let y_diff = screen_height() - smaller_dim;
+        let x_diff = screen_width() - smaller_dim;
+        
+        for (x, y) in self.grid.cells.keys() {
+            draw_rectangle_lines((*x as f32 * self.grid.cellsize) / 100. * smaller_dim + x_diff / 2., (*y as f32 * self.grid.cellsize) / 100. * smaller_dim + y_diff / 2., self.grid.cellsize / 100. * smaller_dim, self.grid.cellsize / 100. * smaller_dim, 2., Color::new(0.15, 0.15, 0.15, 1.0));
         }
         for constraint in self.constraints.iter() {
             constraint.draw();
         }
-        let smaller_dim = screen_width().min(screen_height());
-        let y_diff = screen_height() - smaller_dim;
-        let x_diff = screen_width() - smaller_dim;
         for (p1, p2) in self.links.iter() {
             let pos1 = self.positions[*p1] / 100. * smaller_dim;
             let pos2 = self.positions[*p2] / 100. * smaller_dim;
