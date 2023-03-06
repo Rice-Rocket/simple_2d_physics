@@ -3,11 +3,13 @@ pub use constraint::*;
 use macroquad::prelude::*;
 
 
+#[derive(Clone)]
 pub struct GridCell {
     pub x: f32,
     pub y: f32,
     pub cellsize: f32,
-    pub objects: Vec<usize>
+    pub objects: Vec<usize>,
+    pub display_color: Color,
 }
 
 impl GridCell {
@@ -17,22 +19,24 @@ impl GridCell {
             y: y,
             cellsize: cellsize,
             objects: Vec::new(),
+            display_color: Color::new(0.15, 0.15, 0.15, 1.0)
         }
     }
     pub fn draw(&self) {
         let dim = screen_width().min(screen_height());
         let y_diff = screen_height() - dim;
         let x_diff = screen_width() - dim;
-        draw_rectangle_lines(self.x / 100. * dim + x_diff / 2., self.y / 100. * dim + y_diff / 2., self.cellsize / 100. * dim, self.cellsize / 100. * dim, 2., Color::new(0.15, 0.15, 0.15, 1.0));
+        draw_rectangle_lines(self.x / 100. * dim + x_diff / 2., self.y / 100. * dim + y_diff / 2., self.cellsize / 100. * dim, self.cellsize / 100. * dim, 2., self.display_color);
     }
 }
 
 
+#[derive(Clone)]
 pub struct Grid {
     pub cells: Vec<Vec<GridCell>>,
     pub width: usize,
     pub height: usize,
-    cellsize: f32,
+    pub cellsize: f32,
 }
 
 impl Grid {

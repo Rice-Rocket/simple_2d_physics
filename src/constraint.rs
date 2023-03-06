@@ -53,7 +53,7 @@ impl HalfSpace {
     pub fn new(point: Vec2, normal: Vec2) -> Box<Self> {
         Box::new(
             Self {
-                normal: normal,
+                normal: normal.normalize(),
                 point: point
             }
         )
@@ -73,7 +73,7 @@ impl Constraint for HalfSpace {
         let y_diff = screen_height() - dim;
         let x_diff = screen_width() - dim;
         let p1 = (self.point / 100. * dim) + vec2(x_diff / 2., y_diff / 2.);
-        let p2 = ((self.point + (self.normal.perp() * 100.)) / 100. * dim) + vec2(x_diff / 2., y_diff / 2.);
+        let p2 = ((self.point + (self.normal.perp().abs() * 100.)) / 100. * dim) + vec2(x_diff / 2., y_diff / 2.);
         draw_line(p1.x, p1.y, p2.x, p2.y, 5., GRAY);
     }
 }

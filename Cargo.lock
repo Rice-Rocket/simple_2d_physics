@@ -494,6 +494,7 @@ version = "0.1.0"
 dependencies = [
  "itertools",
  "macroquad",
+ "num_cpus",
  "rand",
  "rayon",
 ]

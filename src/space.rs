@@ -4,7 +4,8 @@ pub use grid::*;
 use itertools::{izip, iproduct, Itertools};
 use macroquad::prelude::*;
 use rayon::prelude::*;
-
+use std::sync::{Arc, Mutex, RwLock};
+use num_cpus;
 
 
 
@@ -95,14 +96,14 @@ impl Space {
     }
     pub fn add_block(&mut self, particles: Vec<usize>, link_strength: f32) {
         for i in 0..particles.len() {
-            let mut nearest = [self.n_objects; 4];
+            let mut nearest = [self.n_objects; 8];
             let uid = particles[i];
             for j in 0..particles.len() {
                 if i == j {
                     continue;
                 }
                 let uid2 = particles[j];
-                for k in 0..3 {
+                for k in 0..8 {
                     if (nearest[k] == self.n_objects) || ((self.positions[nearest[k]] - self.positions[uid]).length() > (self.positions[uid2] - self.positions[uid]).length()) {
                         nearest[k] = uid2;
                         break;
@@ -130,6 +131,17 @@ impl Space {
                 self.link_strengths.remove(i);
             }
         }
+    }
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.positions_old.clear();
+        self.accelerations.clear();
+        self.radii.clear();
+        self.colors.clear();
+        self.links.clear();
+        self.link_dists.clear();
+        self.link_strengths.clear();
+        self.n_objects = 0;
     }
 
     pub fn is_inside(&mut self, p1: usize, p2: usize) -> bool {
@@ -209,88 +221,107 @@ impl Space {
     }
     pub fn apply_links(&mut self) {
         // let mut removed_links = Vec::new();
-        for i in (0..self.links.len()).rev() {
-            let (p1, p2) = self.links[i];
-            let axis = self.positions[p1] - self.positions[p2];
-            let dist = axis.length();
-            let n = axis / dist;
-            let mut delta = self.link_dists[i] - dist;
-            if delta > self.link_strengths[i] {
-                delta = self.link_strengths[i];
-                // removed_links.push(i);
-                self.links.remove(i);
-                self.link_dists.remove(i);
-                self.link_strengths.remove(i);
+        for _ in 0..3 {
+            for i in (0..self.links.len()).rev() {
+                let (p1, p2) = self.links[i];
+                let axis = self.positions[p1] - self.positions[p2];
+                let dist = axis.length();
+                let n = axis / dist;
+                let mut delta = self.link_dists[i] - dist;
+                if delta > self.link_strengths[i] {
+                    delta = self.link_strengths[i];
+                    self.links.remove(i);
+                    self.link_dists.remove(i);
+                    self.link_strengths.remove(i);
+                }
+                self.positions[p1] += 0.5 * delta * n;
+                self.positions[p2] += -0.5 * delta * n;
             }
-            self.positions[p1] += 0.5 * delta * n;
-            self.positions[p2] += -0.5 * delta * n;
         }
-        // for link in removed_links {
-        //     self.links[link] = (self.n_objects, self.n_objects);
-        // }
-        // self.links.retain(|(p1, p2)| (*p1 != self.n_objects) && (*p2 != self.n_objects));
     }
     pub fn apply_collisions(&mut self) {
-        for x in 0..self.grid.width {
-            for y in 0..self.grid.height {
-                let current_cell = self.grid.get(x, y).objects.clone();
+        let new_positions = Arc::new(Mutex::new(self.positions.clone()));
+        let new_grid = Arc::new(Mutex::new(self.grid.clone()));
+        let n_threads = num_cpus::get();
+        let cols_per = self.grid.width / n_threads;
 
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
-                            continue;
-                        }
-                        let other = self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize).objects.clone();
+        for update_side in 0..2 {
+            (0..n_threads).into_par_iter().for_each(|thread_idx| {
+                let mut thread_positions = new_positions.lock().unwrap();
+                // let mut thread_grid = new_grid.lock().unwrap().clone();
+                let xrange = if update_side == 0 {
+                    (thread_idx * cols_per)..(if thread_idx == (n_threads - 1) { self.grid.width - cols_per / 2 } else { (thread_idx + 1) * cols_per - cols_per / 2 })
+                } else {
+                    (if thread_idx == (n_threads - 1) { self.grid.width - cols_per / 2 } else { thread_idx * cols_per + (cols_per - cols_per / 2) })..(if thread_idx == (n_threads - 1) { self.grid.width } else { (thread_idx + 1) * cols_per })
+                };
+                for x in xrange {
+                    for y in 0..self.grid.height {
+                        let current_cell = self.grid.get(x, y).objects.clone();
+                        for dx in -1..=1 {
+                            for dy in -1..=1 {
+                                if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
+                                    continue;
+                                }
+                                let other = self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize).objects.clone();
 
-                        for i in current_cell.iter() {
-                            for j in other.iter() {
-                                if *i != *j {
-                                    let collision_axis = self.positions[*i] - self.positions[*j];
-                                    let center_dist = self.radii[*i] + self.radii[*j];
-                                    let dist = collision_axis.length();
-                                    if dist < center_dist {
-                                        let n = collision_axis / dist;
-                                        let delta = center_dist - dist;
-                                        self.positions[*i] += 0.5 * delta * n;
-                                        self.positions[*j] += -0.5 * delta * n;
-                                        self.grid.update_obj(*i, self.positions[*i]);
-                                        self.grid.update_obj(*j, self.positions[*j]);
+                                for i in current_cell.iter() {
+                                    for j in other.iter() {
+                                        if *i != *j {
+                                            let collision_axis = thread_positions[*i] - thread_positions[*j];
+                                            let center_dist = self.radii[*i] + self.radii[*j];
+                                            let dist = collision_axis.length();
+                                            if dist < center_dist {
+                                                let n = collision_axis / dist;
+                                                let delta = center_dist - dist;
+                                                thread_positions[*i] += 0.5 * delta * n;
+                                                thread_positions[*j] += -0.5 * delta * n;
+                                                new_grid.lock().unwrap().update_obj(*i, thread_positions[*i]);
+                                                new_grid.lock().unwrap().update_obj(*j, thread_positions[*j]);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
+            });
         }
+
+        self.positions = new_positions.lock().unwrap().clone();
+        self.grid = new_grid.lock().unwrap().clone();
     }
     // pub fn apply_collisions(&mut self) {
-    //     let mut new_positions = Vec::new();
-    //     for i in 0..self.n_objects {
-    //         for j in 0..self.n_objects {
-    //             if i != j {
-    //                 new_positions.push((i, j, vec2(0., 0.), vec2(0., 0.)))
+    //     for x in 0..self.grid.width {
+    //         for y in 0..self.grid.height {
+    //             let current_cell = self.grid.get(x, y).objects.clone();
+    //             for dx in -1..=1 {
+    //                 for dy in -1..=1 {
+    //                     if (x as isize + dx < 0) || (x as isize + dx > self.grid.width as isize - 1) || (y as isize + dy < 0) || (y as isize + dy > self.grid.height as isize - 1) {
+    //                         continue;
+    //                     }
+    //                     let other = self.grid.get((x as isize + dx) as usize, (y as isize + dy) as usize).objects.clone();
+
+    //                     for i in current_cell.iter() {
+    //                         for j in other.iter() {
+    //                             if *i != *j {
+    //                                 let collision_axis = self.positions[*i] - self.positions[*j];
+    //                                 let center_dist = self.radii[*i] + self.radii[*j];
+    //                                 let dist = collision_axis.length();
+    //                                 if dist < center_dist {
+    //                                     let n = collision_axis / dist;
+    //                                     let delta = center_dist - dist;
+    //                                     self.positions[*i] += 0.5 * delta * n;
+    //                                     self.positions[*j] += -0.5 * delta * n;
+    //                                     self.grid.update_obj(*i, self.positions[*i]);
+    //                                     self.grid.update_obj(*j, self.positions[*j]);
+    //                                 }
+    //                             }
+    //                         }
+    //                     }
+    //                 }
     //             }
     //         }
-    //     }
-
-    //     new_positions.par_iter_mut().for_each(|(i, j, new_delta_i, new_delta_j)| {
-    //         let collision_axis = self.positions[*i] - self.positions[*j];
-    //         let center_dist = self.radii[*i] + self.radii[*j];
-    //         let dist = collision_axis.length();
-    //         if dist < center_dist {
-    //             let n = collision_axis / dist;
-    //             let delta = center_dist - dist;
-    //             *new_delta_i = 0.5 * delta * n;
-    //             *new_delta_j = -0.5 * delta * n;
-    //             // self.grid.update_obj(*i, &self.objects);
-    //             // self.grid.update_obj(*j, &self.objects);
-    //         }
-    //     });
-
-    //     for (i, j, delta_i, delta_j) in new_positions.iter() {
-    //         self.positions[*i] += *delta_i;
-    //         self.positions[*j] += *delta_j;
     //     }
     // }
     pub fn draw(&mut self) {

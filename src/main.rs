@@ -28,13 +28,13 @@ async fn main() {
     let font = load_ttf_font("assets/Monaco.ttf").await.unwrap();
 
     let mut scene = Space::new();
-    scene.set_gravity(vec2(0., 20.));
+    scene.set_gravity(vec2(0., 30.));
     scene.set_substeps(8);
     // scene.add_constraint(CircleConstraint::new(vec2(50., 50.), 45.));
-    scene.add_constraint(HalfSpace::new(vec2(0., 90.), vec2(0., -1.)));
-    scene.add_constraint(HalfSpace::new(vec2(0., 10.), vec2(0., 1.)));
-    scene.add_constraint(HalfSpace::new(vec2(90., 0.), vec2(-1., 0.)));
-    scene.add_constraint(HalfSpace::new(vec2(10., 0.), vec2(1., 0.)));
+    scene.add_constraint(HalfSpace::new(vec2(0., 99.), vec2(0., -1.)));
+    scene.add_constraint(HalfSpace::new(vec2(0., 1.), vec2(0., 1.)));
+    scene.add_constraint(HalfSpace::new(vec2(99., 0.), vec2(-1., 0.)));
+    scene.add_constraint(HalfSpace::new(vec2(1., 0.), vec2(1., 0.)));
 
     let max_balls = 7200;
     let spray_origin = vec2(30., 40.);
@@ -55,10 +55,30 @@ async fn main() {
             spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin);
             spray(iteration as f32 / 800., &mut scene, &mut rng, spray_origin + vec2(40., 0.));
         }
-        if is_key_pressed(KeyCode::Space) {
-            paused = !paused
+        if is_key_pressed(KeyCode::R) {
+            scene.clear();
+            n_balls = 0;
         }
-        if is_mouse_button_down(MouseButton::Left) && (iteration % 3 == 0) {
+        if is_key_pressed(KeyCode::B) {
+            match scene.localize(vec2(mouse_position().0, mouse_position().1)) {
+                Some(pos) => {
+                    let mut particles = Vec::new();
+                    let col = Color::new(rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), 1.0);
+                    for i in -2..=2 {
+                        for j in -2..=2 {
+                            let particle_pos = pos + vec2(i as f32 * (particle_radius * 2.), j as f32 * (particle_radius * 2.));
+                            let handle = scene.add_particle(particle_pos, particle_radius);
+                            scene.set_color(handle, col);
+                            particles.push(handle);
+                            n_balls += 1;
+                        }
+                    }
+                    scene.add_block(particles, 0.04);
+                },
+                None => ()
+            }
+        }
+        if is_key_down(KeyCode::Space) {
             dragging = true;
             paused = true;
             match scene.localize(vec2(mouse_position().0, mouse_position().1)) {
@@ -72,14 +92,12 @@ async fn main() {
                 None => ()
             }
         }
-        if dragging && is_mouse_button_released(MouseButton::Left) {
-            let r = ((iteration as f32 / 800.) * 5.0).sin();
-            let g = ((iteration as f32 / 800.) * 5.0 + 0.33 * 2.0 * PI).sin();
-            let b = ((iteration as f32 / 800.) * 5.0 + 0.66 * 2.0 * PI).sin();
+        if dragging && is_key_released(KeyCode::Space) {
+            let col = Color::new(rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), rng.gen_range(0.2..0.9), 1.0);
             for uid in current_block.iter() {
-                scene.set_color(*uid, Color::new(r, g, b, 1.0));
+                scene.set_color(*uid, col);
             }
-            scene.add_block(current_block.clone(), 0.05);
+            scene.add_block(current_block.clone(), 0.04);
             current_block.clear();
             dragging = false;
             paused = false;
